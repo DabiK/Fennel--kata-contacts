@@ -3,7 +3,7 @@ const open = require('sqlite').open
 const fs = require('fs')
 
 const filename = 'contacts.sqlite3'
-const numContacts = 3 // TODO: read from process.argv
+const numContacts = Number(process.argv[2])
 
 const shouldMigrate = !fs.existsSync(filename)
 
@@ -12,28 +12,47 @@ const shouldMigrate = !fs.existsSync(filename)
  * one at a time
  *
  */
-function * generateContacts () {
- // TODO
-  yield [`name-1`, `email-1@domain.tld`]
-  yield [`name-2`, `email-2@domain.tld`]
-  yield [`name-3`, `email-3@domain.tld`]
+function * generateContacts (numContacts) {
+  let i = 1
+  while (i <= numContacts) {
+    yield [`name-${i}`, `email-${i}@domain.tld`]
+    i++
+  }
 }
 
 const migrate = async (db) => {
   console.log('Migrating db ...')
   await db.exec(`
         CREATE TABLE contacts(
-          id INTEGER PRIMARY KEY,
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
           email TEXT NOT NULL
          )
      `)
+  await db.exec(`CREATE UNIQUE INDEX index_contacts_email ON contacts(email);`)
   console.log('Done migrating db')
-}
+} 
 
 const insertContacts = async (db) => {
   console.log('Inserting contacts ...')
-  // TODO
+  const start = Date.now()
+  let i = 1;
+  db.run("begin transaction");
+
+  const iterator = generateContacts(numContacts);
+  const stmt = await db.prepare("INSERT INTO contacts VALUES (?,?,?)");
+  while (i <= numContacts) {
+    const [name,email]  = iterator.next().value;
+    await stmt.run(null, name, email);
+    if (i % 1000 === 0) {
+      db.run("commit");
+    }
+    i++
+  }
+  stmt.finalize();
+  const end = Date.now()
+  const elapsed = (end - start) / 1000
+  console.log(`INSERT took ${elapsed} seconds`)
 }
 
 const queryContact = async (db) => {
@@ -50,9 +69,10 @@ const queryContact = async (db) => {
 
 (async () => {
   const db = await open({
-    filename,
-    driver: sqlite3.Database
-  })
+      filename,
+      driver: sqlite3.Database
+    })
+
   if (shouldMigrate) {
     await migrate(db)
   }
